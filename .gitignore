@@ -1,0 +1,7 @@
+/resources/public/dist/
+.figwheel_server.log
+.nrepl-port
+/target/
+.idea
+/.cljs_rhino_repl/.cljs_rhino_repl/cljs/core.js
+/figwheel_server.log
