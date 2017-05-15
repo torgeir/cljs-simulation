@@ -1,5 +1,6 @@
 # cljs-simulation
 
+[![Demo video](https://cl.ly/2T311r0b2h2o/Image%202017-05-15%20at%2011.39.12%20PM.public.png)](https://cl.ly/3c3D3G1e3v2j)
 
 ## prerequisits
 
