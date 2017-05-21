@@ -30,15 +30,11 @@
   (let [state (.-state js/window)]
     (reader/read-string state)))
 
-(defonce state (atom (server-state)))
-
-(rum/defc debug < rum/reactive []
+(rum/defc debug < rum/reactive [state]
   (let [state (rum/react state)]
     (when (:debug state)
       [:pre.debug
        (with-out-str (cljs.pprint/pprint state))])))
-
-(rum/mount (ui/app state (debug)) ($ "#app"))
 
 (defn rand-type []
   (rand-nth [:box :circle]))
@@ -80,11 +76,11 @@
    :y (max 0 (- (:height frame-size)
                 (.-clientY e)))})
 
-(defonce mouse-move-listener
-  (events/listen parent "mousemove" #(a/put! mouse-events (mouse-event-map %))))
-
 (defonce mouse-click-listener
   (events/listen parent "click" #(a/put! mouse-events (mouse-event-map %))))
+
+(defonce mouse-move-listener
+  (events/listen parent "mousemove" #(a/put! mouse-events (mouse-event-map %))))
 
 (def forces
   {:gravity  0.5
@@ -155,7 +151,7 @@
     (partial wind (:wind forces))
     (partial gravity (:gravity forces))))
 
-(defonce raf-chan
+(defn raf-chan [state]
   (let [c (a/chan (a/sliding-buffer 1))]
     (letfn [(animation-loop []
               (if (:running @state)
@@ -166,25 +162,16 @@
       (js/window.requestAnimationFrame animation-loop))
     c))
 
-(defonce game-loop
-  (go
-    (loop []
-      (when (:running @state)
-        (let [[mouse-event chan] (a/alts! [mouse-events raf-chan])]
-          (swap! state update :items
-                 (fn [items]
-                   (mapv
-                     (effects (when (= chan mouse-events) mouse-event))
-                     items))))
-        (recur)))))
-
-(def canvas
-  (let [el ($ "canvas")]
-    (set! (-> el .-height) (:height frame-size))
-    (set! (-> el .-width) (:width frame-size))
-    el))
-
-(def ctx (.getContext canvas "2d"))
+(defn game-loop [state]
+  (go-loop []
+    (when (:running @state)
+      (let [[mouse-event chan] (a/alts! [mouse-events (a/timeout 10)])]
+        (swap! state update :items
+               (fn [items]
+                 (mapv
+                   (effects (when (= chan mouse-events) mouse-event))
+                   items))))
+      (recur))))
 
 (defn clear-canvas! [ctx w h]
   (.clearRect ctx 0 0 w h))
@@ -210,18 +197,34 @@
       (draw-rect! ctx x y w h "#f3c")
       (draw-circle! ctx pos (half w) "#2cf"))))
 
-(defn render-items [items]
+(defn render-items [ctx items]
   (clear-canvas! ctx (:width frame-size) (:height frame-size))
   (mapv #(render-item ctx %) items))
 
-(defonce create-items-once
+(defn run [state]
+  (let [rc (raf-chan state)
+        canvas (let [el ($ "canvas")]
+                 (set! (-> el .-height) (:height frame-size))
+                 (set! (-> el .-width) (:width frame-size))
+                 el)
+        ctx (.getContext canvas "2d")]
+
+    (go-loop []
+      (a/<! rc)
+      (render-items ctx (:items @state))
+      (recur))))
+
+(defonce start
   (do
-    (add-watch state :render-watch
-               (fn [key ref _ new-state]
-                 (render-items (:items new-state))))
+    (defonce state (atom (server-state)))
+
+    (rum/mount (ui/app state (debug state)) ($ "#app"))
 
     (swap! state assoc
-           :running true
            :debug false
+           :running true
            :items (doall (mapv #(create-item %) (range 100))))
+
+    (run state)
+    (game-loop state)
     ))
