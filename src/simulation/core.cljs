@@ -69,7 +69,7 @@
      (get-in item [:size :height])
      (get-in item [:size :width])))
 
-(defonce mouse-events (a/chan))
+(defonce mouse-chan (a/chan))
 
 (defn mouse-event-map [e]
   {:x (max 0 (.-clientX e))
@@ -77,10 +77,7 @@
                 (.-clientY e)))})
 
 (defonce mouse-click-listener
-  (events/listen parent "click" #(a/put! mouse-events (mouse-event-map %))))
-
-(defonce mouse-move-listener
-  (events/listen parent "mousemove" #(a/put! mouse-events (mouse-event-map %))))
+  (events/listen parent "click" #(a/put! mouse-chan (mouse-event-map %))))
 
 (def forces
   {:gravity  0.5
@@ -162,17 +159,6 @@
       (js/window.requestAnimationFrame animation-loop))
     c))
 
-(defn game-loop [state]
-  (go-loop []
-    (when (:running @state)
-      (let [[mouse-event chan] (a/alts! [mouse-events (a/timeout 10)])]
-        (swap! state update :items
-               (fn [items]
-                 (mapv
-                   (effects (when (= chan mouse-events) mouse-event))
-                   items))))
-      (recur))))
-
 (defn clear-canvas! [ctx w h]
   (.clearRect ctx 0 0 w h))
 
@@ -197,8 +183,9 @@
       (draw-rect! ctx x y w h "#f3c")
       (draw-circle! ctx pos (half w) "#2cf"))))
 
-(defn render-items [ctx items]
-  (clear-canvas! ctx (:width frame-size) (:height frame-size))
+(defn render-items [ctx items clear]
+  (when clear
+    (clear-canvas! ctx (:width frame-size) (:height frame-size)))
   (mapv #(render-item ctx %) items))
 
 (defn run [state]
@@ -211,16 +198,70 @@
 
     (go-loop []
       (a/<! rc)
-      (render-items ctx (:items @state))
+      (render-items ctx (:items @state) (:clear @state))
       (recur))))
 
+(defn tick-items [items effects times]
+  (loop [items items
+         n times]
+    (if (zero? n)
+      items
+      (recur (mapv effects items)
+             (dec n)))))
+
+(defonce key-chan (a/chan))
+
+(defonce key-listener
+  (events/listen
+    parent
+    "keydown"
+    #(a/put! key-chan
+             (case (.-keyCode %)
+               32 :pause
+               37 :prev
+               39 :next
+               67 :toggle-clear
+               :unhandled))))
+
+
+
+(defn game-loop [state-ref]
+  (go-loop [state @state-ref
+            items-history (list (:items state))]
+    (when (:running state)
+      (let [[e chan] (a/alts! [key-chan
+                               mouse-chan
+                               (a/timeout 16)])
+            skip 1]
+
+        (reset! state-ref (assoc state :items (first items-history)))
+
+        (condp = chan
+          key-chan (condp = e
+                     :toggle-clear (recur (update state :clear not) items-history)
+                     :pause (recur (update state :paused not) items-history)
+                     :prev  (recur state (drop skip items-history))
+                     :next  (recur state (loop [times skip
+                                                acc items-history]
+                                           (if (zero? times)
+                                             acc
+                                             (recur (dec times)
+                                                    (conj acc
+                                                          (tick-items (first acc) (effects nil) 1))))))
+                     (recur state items-history))
+          (let [pos (when (= chan mouse-chan) e)]
+            (recur state (if (:paused state)
+                           items-history
+                           (conj items-history
+                                 (tick-items (first items-history) (effects pos) 1))))))))))
+
 (defonce start
-  (do
-    (defonce state (atom (server-state)))
+  (let [state (atom (server-state))]
 
     (rum/mount (ui/app state (debug state)) ($ "#app"))
 
     (swap! state assoc
+           :clear true
            :debug false
            :running true
            :items (doall (mapv #(create-item %) (range 100))))
