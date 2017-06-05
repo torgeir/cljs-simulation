@@ -1,11 +1,13 @@
 (ns server.routes
-  (:require [compojure.core :refer :all]
+  (:require [rum.core :as rum]
             [compojure.route :as route]
-            [rum.core :as rum]
+            [compojure.core :refer :all]
             [simulation.ui :as ui]))
+
 
 (defonce state
   (atom {:running false}))
+
 
 (defn layout [state partial]
   (str
@@ -22,10 +24,12 @@
       </body>
     </html>"))
 
+
 (defn index [req]
   {:status  200
    :headers {"content-type" "text/html"}
    :body (layout @state (rum/render-html (ui/app state nil)))})
+
 
 (defroutes app
   (route/resources "/" {:root "public"})

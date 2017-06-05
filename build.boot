@@ -15,7 +15,9 @@
                  [figwheel-sidecar "0.5.7"          :scope "test"]
                  [deraen/boot-less "0.6.1"          :scope "test"] ; less
 
-                 [rum "0.10.8"]])
+                 ;; both
+                 [rum "0.10.8"]
+                 [com.taoensso/timbre "4.10.0"]])
 
 (load-file "figwheel_utils.clj")
 
